@@ -1,0 +1,53 @@
+body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    background-color: #fae6ca;
+    overflow: hidden;
+}
+#main_column {
+    padding: 30px;
+    display: flex;
+    flex-direction: row;
+    border-radius: 30px;
+    background-color: #fff;
+    max-height: 80vh;
+}
+#chart_wrap {
+    width: 60vw;
+    height: calc(55vh + 60px);
+}
+#chart_title {
+    height: 30px;
+    text-align: center;
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #666;
+    margin-bottom: 20px;
+}
+#chart {
+    height: 50vh;
+}
+#ticker_selector {
+    width: 20vw;
+    height: 30px;
+    margin-top: 0.3em;
+    display: hidden;
+}
+#chart_bottom {
+    margin: 20px 0;
+    text-align: center;
+    font-size: 1em;
+    color: #666;
+}
+#date_label {
+    margin-left: 50px;
+    font-size: 0.7em;
+    color: #666;
+}
+.ct-chart .ct-label .ct-horizontal {
+    margin-top: 40px;
+}

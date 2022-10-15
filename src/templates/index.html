@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+    <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quotes</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <script src="/static/lib/socket.io.min.js"></script>
+    <script src="/static/lib/chartist.min.js"></script>
+    <script src="/static/app.js"></script>
+    <link rel="stylesheet" href="/static/lib/chartist.min.css"/>
+    <link rel="stylesheet" href="/static/style.css"/>
+  </head>
+  
+  <body onload="App.run()">
+    <div id="main_column">
+      <div id="chart_wrap">
+          <div id="chart_title"></div>
+          <div class="ct-chart ct-perfect-fourth" id="chart"></div>
+          <div id="date_label"></div>
+          <div id="chart_bottom">График можно прокручивать колесом прокрутки</div>
+      </div>
+      <select id="ticker_selector">
+      </select>
+    </div>
+  </body>
+  
+</html>
