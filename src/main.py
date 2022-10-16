@@ -33,43 +33,66 @@ class QuoteGenerator:
         n_rows = len(config.tickers)
         n_cols = config.n_ticks(config.max_stored_ticks)
         self._quotes = np.zeros((n_rows, n_cols), dtype=config.quote_type)
-        self._end_position = 0 # where writing ended in the circular array
+        self._end_index = 0 # where writing ended in the circular array
         self._ever_reached_the_end_of_array = False
-        self._end_timestamp_sec = None # timestamp of the tick at end_position-1
-        self._position_lock = threading.Lock()
+        self._end_timestamp_sec = None # timestamp of the tick at end_index-1
+        self._index_lock = threading.Lock()
         
 
-    def get_quotes(self, since_position: int)->('dtype[n_tickers][n_ticks]', int, int):
+    def get_quotes(self, from_index: int)->('dtype[n_tickers][n_ticks]', int, int):
         max_ticks = self._quotes.shape[1]
-        with self._position_lock:
-            end_position = self._end_position # copy because it may change in another thread
+        with self._index_lock:
+            end_index = self._end_index # copy because it may change in another thread
             end_timestamp_sec = self._end_timestamp_sec
         
         if self._ever_reached_the_end_of_array:
             n_generated_ticks = max_ticks
         else:
-            n_generated_ticks = end_position
+            n_generated_ticks = end_index
             
-        if since_position <= end_position:
-            n_requested_ticks = end_position - since_position
+        if from_index <= end_index:
+            n_requested_ticks = end_index - from_index
         else:
-            n_requested_ticks = max_ticks - since_position + end_position
+            n_requested_ticks = max_ticks - from_index + end_index
             
         n_ticks = min(n_requested_ticks, n_generated_ticks)
         
-        if n_ticks <= end_position:
+        if n_ticks <= end_index:
             # points from left-hand side of the array only
-            quotes = self._quotes[:, (end_position - n_ticks):end_position]
+            quotes = self._quotes[:, (end_index - n_ticks):end_index]
         else:
             # points from both right-hand side and left-hand side
             quotes = np.concatenate(
                 (
-                    self._quotes[:, (max_ticks-(n_ticks-end_position)):],
-                    self._quotes[:, :end_position]
+                    self._quotes[:, (max_ticks-(n_ticks-end_index)):],
+                    self._quotes[:, :end_index]
                 ),
                 axis=1
             )
-        return quotes, end_position, end_timestamp_sec
+        return quotes, end_index, end_timestamp_sec
+        
+    
+    def get_array_index_by_timestamp(self, timestamp_sec: int)->int:
+        max_ticks = self._quotes.shape[1]
+        with self._index_lock:
+            end_index = self._end_index # copy because it may change in another thread
+            end_timestamp_sec = self._end_timestamp_sec
+        
+        if self._ever_reached_the_end_of_array:
+            n_generated_ticks = max_ticks
+        else:
+            n_generated_ticks = end_index
+            
+        elapsed_sec = max(0, end_timestamp_sec - timestamp_sec)
+        n_requested_ticks = self._config.n_ticks(elapsed_sec)
+        
+        n_ticks = min(n_requested_ticks, n_generated_ticks)
+        
+        with self._index_lock:
+            if n_ticks <= end_index:
+                return end_index - n_ticks
+            else:
+                return max_ticks - (n_ticks - end_index)
         
 
     def start_generating_quotes(self):
@@ -81,7 +104,7 @@ class QuoteGenerator:
         self._end_timestamp_sec = int(time.time() - self._config.tick_interval_sec)
         while True:
             try:
-                with self._position_lock:
+                with self._index_lock:
                     self._generate_quotes_once()
             except Exception:
                 traceback.print_exc()
@@ -96,8 +119,9 @@ class QuoteGenerator:
         n_tickers, max_ticks = self._quotes.shape
         
         while n_ticks_to_fill > 0:
-            pos = self._end_position
+            pos = self._end_index
             if pos == 0 and not self._ever_reached_the_end_of_array:
+                # filling in the initial value
                 self._quotes[:, pos] = self._config.initial_quote
             else:
                 prev_pos = pos - 1
@@ -111,8 +135,8 @@ class QuoteGenerator:
                 
             if pos == max_ticks - 1:
                 self._ever_reached_the_end_of_array = True
-            self._end_position += 1
-            self._end_position %= max_ticks
+            self._end_index += 1
+            self._end_index %= max_ticks
             n_ticks_to_fill -= 1
             
 
@@ -146,16 +170,30 @@ def get_config():
         'tickers': config.tickers,
         'tick_interval_sec': config.tick_interval_sec,
     }
+
+
+@app.route('/api/quotes')
+def get_quotes():
+    # Getting large data via socket.io does not seem to work well.
+    from_timestamp_sec = int(request.args.get('from_timestamp_sec'))
+    from_index = quote_generator.get_array_index_by_timestamp(from_timestamp_sec)
+    quotes, next_index, end_timestamp_sec = \
+            quote_generator.get_quotes(from_index)
+    return {
+        'quotes': quotes.tolist(),
+        'next_index': next_index,
+        'end_timestamp_sec': end_timestamp_sec,
+    }
     
 
+
 @socketio.on('quotes_requested')
-def handle_quotes_requested(since_timestamp_sec: int):
-    quotes, next_position, end_timestamp_sec = \
-            quote_generator.get_quotes(since_timestamp_sec)
-    #print(quote_generator._end_position, since_timestamp_sec, end_position, quotes[0], flush=True)
+def handle_quotes_requested(from_index: int):
+    quotes, next_index, end_timestamp_sec = \
+            quote_generator.get_quotes(from_index)
     response = {
         'quotes': quotes.tolist(),
-        'next_position': next_position,
+        'next_index': next_index,
         'end_timestamp_sec': end_timestamp_sec,
     }
     emit('quotes_sent', response)
