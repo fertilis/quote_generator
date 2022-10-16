@@ -1,5 +1,4 @@
 class App {
-    history_sec = 1 * 86400;
     max_points_on_chart_frame = 50;
     
     static async run() {
@@ -10,7 +9,8 @@ class App {
     
     constructor() {
         this._selected_ticker_index = 0;
-        this._last_timestamp_sec = Math.round(Date.now()/1000, 0) - this.history_sec;
+        this._start_postion_to_request_from = 0;
+        this._end_timestamp_sec = Math.round(Date.now()/1000, 0);
         this._chart_options = {
             axisY: {
                 type: Chartist.AutoScaleAxis,
@@ -73,15 +73,18 @@ class App {
         const socket = io();
         
         socket.on('connect', () => {
-            socket.emit('quotes_requested', this._last_timestamp_sec);
+            socket.emit('quotes_requested', this._start_postion_to_request_from);
             setInterval(() => {
-                socket.emit('quotes_requested', this._last_timestamp_sec);
+                socket.emit('quotes_requested', this._start_postion_to_request_from);
             }, 500);
             socket.on('quotes_sent', (response) => {
-                if (this._last_timestamp_sec < response.timestamp_sec) {
-                    this._last_timestamp_sec = response.timestamp_sec;
-                    this._update_quotes_once(response.quotes, response.timestamp_sec);
-                    this._render_chart();
+                if (this._start_postion_to_request_from != response.next_position) {
+                    this._start_postion_to_request_from = response.next_position;
+                    this._end_timestamp_sec = response.end_timestamp_sec;
+                    if (response.quotes[0].length > 0) {
+                        this._update_quotes_once(response.quotes);
+                        this._render_chart();
+                    }
                 }
             });
         });
@@ -101,9 +104,7 @@ class App {
         const start = Math.max(0, end - this.max_points_on_chart_frame);
         const chart_points = quotes.slice(start, end);
         
-        const n_ticks_from_left_to_end = quotes.length - start;
-        const interval_from_end_sec = this._last_timestamp_sec - n_ticks_from_left_to_end * this.tick_interval_sec;
-        const datestr = (new Date(interval_from_end_sec*1000)).toLocaleString(); 
+        const datestr = (new Date(this._end_timestamp_sec*1000)).toLocaleString(); 
         this._date_label.textContent = datestr;
         
         const data = {

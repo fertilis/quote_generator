@@ -36,38 +36,40 @@ class QuoteGenerator:
         self._end_position = 0 # where writing ended in the circular array
         self._ever_reached_the_end_of_array = False
         self._end_timestamp_sec = None # timestamp of the tick at end_position-1
+        self._position_lock = threading.Lock()
         
 
-    def get_quotes(self, since_timestamp_sec: int)->'(dtype[n_tickers][n_ticks], ts)':
+    def get_quotes(self, since_position: int)->('dtype[n_tickers][n_ticks]', int, int):
         max_ticks = self._quotes.shape[1]
+        with self._position_lock:
+            end_position = self._end_position # copy because it may change in another thread
+            end_timestamp_sec = self._end_timestamp_sec
+        
         if self._ever_reached_the_end_of_array:
             n_generated_ticks = max_ticks
         else:
-            n_generated_ticks = self._end_position
+            n_generated_ticks = end_position
             
-        duration_sec = max(0, int(time.time()) - since_timestamp_sec)
-        n_requested_ticks = self._config.n_ticks(duration_sec)
-        
-        n_ticks = min(n_requested_ticks, n_generated_ticks)
-        pos = self._end_position
-        if n_ticks == 0:
-            next_timestamp_to_request_from_sec = self._end_timestamp_sec
+        if since_position <= end_position:
+            n_requested_ticks = end_position - since_position
         else:
-            next_timestamp_to_request_from_sec = self._end_timestamp_sec + 1
+            n_requested_ticks = max_ticks - since_position + end_position
+            
+        n_ticks = min(n_requested_ticks, n_generated_ticks)
         
-        if n_ticks <= pos:
+        if n_ticks <= end_position:
             # points from left-hand side of the array only
-            quotes = self._quotes[:, (pos - n_ticks):pos]
+            quotes = self._quotes[:, (end_position - n_ticks):end_position]
         else:
             # points from both right-hand side and left-hand side
             quotes = np.concatenate(
                 (
-                    self._quotes[:, (max_ticks-(n_ticks-pos)):],
-                    self._quotes[:, :pos]
+                    self._quotes[:, (max_ticks-(n_ticks-end_position)):],
+                    self._quotes[:, :end_position]
                 ),
                 axis=1
             )
-        return quotes, next_timestamp_to_request_from_sec
+        return quotes, end_position, end_timestamp_sec
         
 
     def start_generating_quotes(self):
@@ -79,7 +81,8 @@ class QuoteGenerator:
         self._end_timestamp_sec = int(time.time() - self._config.tick_interval_sec)
         while True:
             try:
-                self._generate_quotes_once()
+                with self._position_lock:
+                    self._generate_quotes_once()
             except Exception:
                 traceback.print_exc()
             time.sleep(interval)
@@ -102,7 +105,7 @@ class QuoteGenerator:
                     prev_pos = max_ticks - 1
                 
                 self._quotes[:, pos] = np.array([
-                    self._generate_quote(self._quotes[i, prev_pos])
+                    self._generate_quote(int(self._quotes[i, prev_pos]))
                     for i in range(n_tickers)
                 ], dtype=self._config.quote_type)
                 
@@ -147,10 +150,13 @@ def get_config():
 
 @socketio.on('quotes_requested')
 def handle_quotes_requested(since_timestamp_sec: int):
-    quotes, timestamp_sec = quote_generator.get_quotes(since_timestamp_sec)
+    quotes, next_position, end_timestamp_sec = \
+            quote_generator.get_quotes(since_timestamp_sec)
+    #print(quote_generator._end_position, since_timestamp_sec, end_position, quotes[0], flush=True)
     response = {
         'quotes': quotes.tolist(),
-        'timestamp_sec': timestamp_sec,
+        'next_position': next_position,
+        'end_timestamp_sec': end_timestamp_sec,
     }
     emit('quotes_sent', response)
     
