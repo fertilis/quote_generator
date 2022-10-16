@@ -11,7 +11,7 @@ from flask_socketio import SocketIO, emit
 
 class Config:
     quote_type = np.uint16
-    max_stored_ticks = 1 * 86400 # enough space for 1 day
+    max_stored_ticks = 7 * 86400 # enough space for 7 days
     tickers = [ 'ticker_{:02}'.format(i) for i in range(100) ]
     tick_interval_sec = 1.0
     initial_quote = 0
@@ -50,7 +50,10 @@ class QuoteGenerator:
         
         n_ticks = min(n_requested_ticks, n_generated_ticks)
         pos = self._end_position
-        timestamp_sec = self._end_timestamp_sec
+        if n_ticks == 0:
+            next_timestamp_to_request_from_sec = self._end_timestamp_sec
+        else:
+            next_timestamp_to_request_from_sec = self._end_timestamp_sec + 1
         
         if n_ticks <= pos:
             # points from left-hand side of the array only
@@ -64,7 +67,7 @@ class QuoteGenerator:
                 ),
                 axis=1
             )
-        return quotes, timestamp_sec
+        return quotes, next_timestamp_to_request_from_sec
         
 
     def start_generating_quotes(self):

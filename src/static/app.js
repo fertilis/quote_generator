@@ -73,6 +73,7 @@ class App {
         const socket = io();
         
         socket.on('connect', () => {
+            socket.emit('quotes_requested', this._last_timestamp_sec);
             setInterval(() => {
                 socket.emit('quotes_requested', this._last_timestamp_sec);
             }, 500);
